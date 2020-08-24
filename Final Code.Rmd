@@ -1,0 +1,561 @@
+---
+title: "Univariate Sales Forecasting based on Settlements"
+author: "Raja Amlan"
+date: "7/7/2020"
+output:
+  html_document:
+    fig_width: 12
+    fig_height: 8
+    code_folding: hide
+    warning: hide
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+### Some Basic Changes
+
+1. Scientific Notation Change
+```{r}
+options(scipen=999)
+```
+
+2. Removing all existing data frames
+```{r}
+rm(list=ls())
+```
+
+### Required Libraries
+```{r}
+library(tidyverse)
+library(lubridate)
+library(stringr)
+library(forecast)
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(magrittr)
+library(fpp2)
+library(zoo)
+library(seastests)
+library(TSstudio)
+library(seastests)
+library(TSstudio)
+library(tidyr)
+library(caret)
+```
+
+
+### Data Loading
+1. Input the data file into a dataframe - This contains data from 2018 to till date
+```{r}
+df <- read_csv("C:/Users/raja.amlan/Desktop/Tableau Workbooks/SGEP Daily Sales/Illinois Forecasting.csv")
+View(df)
+```
+
+### Data Manipulation
+
+Involving Few Steps
+
+1. Renaming the Columns
+2. Converting the Data Format to YYYY-MM-DD
+
+```{r}
+df <- rename(df, Dollar_1 = '$1')
+df <- rename(df, Dollar_2 = '$2')
+df <- rename(df, Dollar_3 = '$3')
+df <- rename(df, Dollar_5 = '$5')
+df <- rename(df, Dollar_10 = '$10')
+df <- rename(df, Dollar_20 = '$20')
+df <- rename(df, Dollar_25 = '$25')
+df <- rename(df, Dollar_30 = '$30')
+
+df$Date<-as.Date(df$Date,format='%m/%d/%Y') # Converting the date format here 
+```
+
+
+3. Converting the Data Type to Numeric for all Columns.
+```{r}
+## replace $ with blank "" in the df$payment column.  and coerce that result to numeric
+df$Dollar_1 = as.numeric(gsub("[\\$,]", "", df$Dollar_1))
+df$Dollar_2 = as.numeric(gsub("[\\$,]", "", df$Dollar_2))
+df$Dollar_3 = as.numeric(gsub("[\\$,]", "", df$Dollar_3))
+df$Dollar_5 = as.numeric(gsub("[\\$,]", "", df$Dollar_5))
+df$Dollar_10 = as.numeric(gsub("[\\$,]", "", df$Dollar_10))
+df$Dollar_20 = as.numeric(gsub("[\\$,]", "", df$Dollar_20))
+df$Dollar_25 = as.numeric(gsub("[\\$,]", "", df$Dollar_25))
+df$Dollar_30 = as.numeric(gsub("[\\$,]", "", df$Dollar_30))
+df$Total = as.numeric(gsub("[\\$,]", "", df$Total))
+
+```
+
+4. Check the Data Type now.
+```{r}
+## The data type for all of them is now numeric
+str(df)
+```
+
+### Data Understanding and Visualization
+
+1. Below is a a ggplot visual of all our different Price Points
+2. If you look at them closely, most of them satisfy the visual pre-requisite of a stationary sequence
+3. None of them exhibit a linear trend except for Dollar_30 Price Point, low auto-correlation, seasonality is visible but we will look at it further with some tests
+4. Dollar_25 Seasonality and Trends have been ignored because they it has been brough in and out Year over Year
+5. The Various Models that I would built would be around Total initially, followed by subsequent Price Points
+6. The motive behind it is to maximize the variance as it captures most of the Price Points
+
+```{r}
+
+par(mfrow=c(3,3))
+
+## Sales Plot for Dollar 1 ##
+ggplot(df, aes(x = Date, y = Dollar_1 )) +
+  geom_line(col = "green") + ylim(0, 1000000) +
+  scale_x_date(date_labels = "%y %b", date_breaks = "1 month") +
+  theme_bw() 
+
+## Sales Plot for Dollar 2 ##
+ggplot(df, aes(x = Date, y = Dollar_2 )) +
+  geom_line(col = "green") + ylim(0, 1000000) +
+  scale_x_date(date_labels = "%y %b", date_breaks = "1 month") +
+  theme_bw() 
+
+## Sales Plot for Dollar 3 ##
+ggplot(df, aes(x = Date, y = Dollar_3 )) +
+  geom_line(col = "green") + ylim(0, 800000) +
+  scale_x_date(date_labels = "%y %b", date_breaks = "1 month") +
+  theme_bw() 
+
+## Sales Plot for Dollar 5 ##
+ggplot(df, aes(x = Date, y = Dollar_5 )) +
+  geom_line(col = "green") + ylim(0, 3000000) +
+  scale_x_date(date_labels = "%y %b", date_breaks = "1 month") +
+  theme_bw() 
+
+## Sales Plot for Dollar 10 ##  
+ggplot(df, aes(x = Date, y = Dollar_10 )) +
+  geom_line(col = "green") + ylim(0, 3000000) +
+  scale_x_date(date_labels = "%y %b", date_breaks = "1 month") +
+  theme_bw() 
+
+## Sales Plot for Dollar 20 ##
+ggplot(df, aes(x = Date, y = Dollar_20 )) +
+  geom_line(col = "green") + ylim(0, 2000000) +
+  scale_x_date(date_labels = "%y %b", date_breaks = "1 month") +
+  theme_bw() 
+
+## Sales Plot for Dollar 25 ##
+ggplot(df, aes(x = Date, y = Dollar_25 )) +
+  geom_line(col = "green") + ylim(0, 500000) +
+  scale_x_date(date_labels = "%y %b", date_breaks = "1 month") +
+  theme_bw() 
+
+## Sales Plot for Dollar 30 ##
+ggplot(df, aes(x = Date, y = Dollar_30 )) +
+  geom_line(col = "green") + ylim(0, 1000000) +
+  scale_x_date(date_labels = "%y %b", date_breaks = "1 month") +
+  theme_bw() 
+
+#### Sales Plot for Total ##
+ggplot(df, aes(x = Date, y = Total )) +
+  geom_line(col = "green") + ylim(0, 10000000) +
+  scale_x_date(date_labels = "%y %b", date_breaks = "1 month") +
+  theme_bw() 
+
+```
+
+Autoplot Usage is to look at all the different Price Points in one shot.
+
+```{r}
+autoplot(ts(df))
+```
+
+Now, moving on to the other part of this Analysis, which is perfroming statistical tests and if need be stationarizing the data, in order to perform Time Series Modeling
+
+Is it stationary?
+Is there a seasonality?
+Is the target variable autocorrelated?
+
+Lets look at the Target Variable "Total", if its Staionary. Will use a couple of different appraoches to check if the time series is stationary.
+
+Below chunk is to assign a frequency of 365 to our target variable because we are looking at Daily Forecast.
+
+```{r}
+### Lets look at some of the statistical features of the time series here.
+summary(df$Total)
+```
+
+
+```{r}
+
+### Making it a time series with frequency 365, as we are looking at it from a daily times series perspective.
+### Trying few alternatives
+myts <- ts(df$Total, start=c(2018), frequency=365)
+```
+
+### Augmented Dickey Fuller Test
+
+```{r}
+
+# How do we know if the data is stationary or not you look athe visuals, and performs some tests.
+# The Augmented Dickey fuller Test.
+options(warn=-1)
+library(tseries)
+
+adf.test(myts)
+```
+
+The alternative hypothesis, states that this variable is stationary, the low p-value adds weight to it.
+
+### Auto-Correlation
+
+Let's try an alternative Ljung Box Test here to see if data is stationary or not? This looks at the Auto-Correlation Aspect between several Lags. We Can try various alternatives like weekly Lags, Monthly Lags etc
+
+
+```{r}
+lag.length = 30
+Box.test(myts, lag=lag.length, type="Ljung-Box") # test stationary signal
+
+```
+
+```{r}
+lag.length = 7
+Box.test(myts, lag=lag.length, type="Ljung-Box") # test stationary signal
+ 
+```
+
+Trying out the PACF and ACF Plots to understand this further
+
+```{r}
+### Auto-Correlation
+### Checking the Auto Correlation Function here.
+t = df$Date # Creating a list of the dates
+
+plot.new()
+frame()
+par(mfcol=c(2,1))
+# the stationary signal and ACF
+plot(t,df$Total,
+     type='l',col='red',
+     xlab = "time (t)",
+     ylab = "Y(t)",
+     main = "Stationary signal")
+acf(df$Total,lag.max = length(df$Total),
+    xlab = "lag #", ylab = 'ACF',main=' ')
+```
+
+```{r}
+## Both acf() and pacf() generates plots by default
+acfRes <- acf(myts) # autocorrelation
+pacfRes <- pacf(myts)  # partial autocorrelation
+
+```
+
+The Correlation Plots, show or signify underlying ARMA Pattern and this could be dealt with by using an ARIMA Model. If you closely look at it the decay is slow in year 2018 and that signifies that our seires is not stationary, gradually it does seem to become stationary.Long story short post lag 250 the series seems to kind of stationarize.
+
+### Trend Stationarity
+
+Kwiatkowski-Phillips-Schmidt-Shin (KPSS) for level or trend stationarity
+Lastly, we can test if the time series is level or trend stationary using the Kwiatkowski-Phillips-Schmidt-Shin (KPSS) test. Here we will test the null hypothesis of trend stationarity (a low p-value will indicate a signal that is not trend stationary, has a unit root):
+
+```{r}
+## Kwiatkowski-Phillips-Schmidt-Shin (KPSS) for level or trend stationarity
+kpss.test(myts, null="Trend")
+
+```
+
+Now this suggests that we do have a linear trend or a unit root however there's not a very strong statstical significance associated with it, but more or less significant enough. With a 99 percent CI we are border line Not Stationary.
+
+
+### Decomposing the Series and checking seasonality there's Seasonality
+
+```{r}
+print("Testing the non-seasonal series")
+#> [1] "Testing the non-seasonal series"
+summary(wo(myts))
+```
+
+The WO- Test doesn't identify seasonality in the univariate series here, mostly because the frequency we are looking at here is 365, which implies daily. Beneath is the decomposed plot where we observe the seasonality quotient, that repeated thrice over the course of 3 years. 
+
+Decomposing the Time Series
+
+```{r}
+## Decomposing the time series 
+decomposedRes <- decompose(myts)
+plot(decomposedRes)
+plot(decomposedRes$seasonal)
+
+decomposedRes
+
+
+```
+
+
+Overall, we observe a mix of responses with our Tests and Visuals, Now, is the time to builda few models and then compare the accuracies and efficiencies. 
+
+### Model Building
+
+Lets do a Train and Test Split of our Data Prior to modeling, excluding or leaving out last 60 days as testing sample.
+
+```{r}
+split_myts <- ts_split(ts.obj = myts, sample.out = 60)
+
+training1 <- split_myts$train
+testing <- split_myts$test
+```
+
+
+1. STL Decomposition, Method Used = Exponential Smoothing, Below is the
+
+```{r}
+
+fit <- stlf(training1, method = "ets") ## Exponential Smoothing here, along with STL Decomposition
+fc <- forecast(fit, h=60)
+plot(fc)
+fc
+
+```
+
+
+
+2. Multiple Seasonal Model - TBATS
+
+```{r}
+y <- msts(training1, seasonal.periods=c(7,365.25))
+fit2 <- tbats(y)
+fc2 <- forecast(fit2, h=60)
+plot(fc2)
+fc2
+```
+
+
+3. Holts Intermittent Model
+
+```{r}
+# simple exponential - models level
+fit4 <- HoltWinters(training1, beta=FALSE, gamma=FALSE)
+# double exponential - models level and trend
+fit5 <- HoltWinters(training1, gamma=FALSE)
+# triple exponential - models level, trend, and seasonal components
+fit6 <- HoltWinters(training1)
+
+fc6<- forecast(fit6, h=60)
+fc6
+```
+
+4. Auto-Arima Model
+
+```{r}
+train_index<-length(training1)
+length(train_index)
+
+n_total<-length(myts)
+n_total
+
+length(testing)
+train_index
+predicted <- numeric(n_total-train_index)
+
+## Now trying the Auto Arima Model, this is our model number 3 that is Auto_Arima
+for (i in 1:(n_total-train_index)) {
+  training <- myts[1:(train_index-1+i)]
+  arima_model <- auto.arima(training)
+  pred <- forecast(arima_model, 1)
+  predicted[i] <- pred$mean
+}
+
+arima_model
+```
+This is a model of the order ARIMA(1,1,2). AR(1), MA(2) and required single differencing to stationarize the Uni-Variate Time Series
+
+```{r}
+### Storing the predictions
+
+df_pred <- tibble(obs = c(training1, testing), 
+                  predicted = c(training1, predicted),
+                  time = df$Date) 
+
+```
+
+### Plotting Predicted and Observed Points of the Auto Arima Model
+```{r}
+### Plotting the predicted sales ### 
+
+ggplot(gather(df_pred, obs_pred, value, -time) %>% 
+         mutate(obs_pred = factor(obs_pred, levels = c("predicted", "obs"))), 
+       aes(x = time, y = value, col = obs_pred, linetype = obs_pred)) +
+  geom_line() +
+  xlab("") + ylab("") +
+  scale_color_manual(values=c("black", "hotpink")) +
+  scale_linetype_manual(values=c(2, 1)) +
+  scale_x_date(date_labels = "%y %b", date_breaks = "2 month") +
+  theme_bw() + theme(legend.title = element_blank(),
+                     axis.text.x  = element_text(angle=45, vjust=0.5))
+```
+
+### Lets Compare the Accuracies
+
+```{r}
+stl_model<-accuracy(fc,testing)
+tbats_model<-accuracy(fc2,testing)
+Hi_Model<-accuracy(fc6,testing)
+Auto_Model<-accuracy(predicted,testing)
+```
+
+```{r}
+stl_model
+tbats_model
+Hi_Model
+Auto_Model
+```
+
+Best MAPE of the 4 models on the Testing Set is 7% and that result was achieved by Model 4 which was the Auto-ML Model. Followed by the TBATS, Holts Intermittent, STLF model.
+
+
+
+### Forward 60 day forecast
+
+```{r}
+
+fit <- stlf(myts, method = "ets") ## Exponential Smoothing here, along with STL Decomposition
+fc <- forecast(fit, h=60)
+plot(fc)
+fc
+
+```
+
+```{r}
+# simple exponential - models level
+fit4 <- HoltWinters(myts, beta=FALSE, gamma=FALSE)
+# double exponential - models level and trend
+fit5 <- HoltWinters(myts, gamma=FALSE)
+# triple exponential - models level, trend, and seasonal components
+fit6 <- HoltWinters(myts)
+
+fc6<- forecast(fit6, h=60)
+fc6
+```
+
+```{r}
+y <- msts(myts, seasonal.periods=c(7,365.25))
+fit2 <- tbats(y)
+fc2 <- forecast(fit2, h=60)
+plot(fc2)
+fc2
+```
+
+
+
+```{r}
+train_index<-length(myts)
+length(train_index)
+
+n_total<-length(myts)
+n_total
+
+length(testing)
+train_index
+predicted <- numeric(n_total-train_index)
+
+## Now trying the Auto Arima Model, this is our model number 3 that is Auto_Arima
+for (i in 1:(n_total-train_index)) {
+  training <- myts[1:(train_index-1+i)]
+  arima_model <- auto.arima(training)
+  pred <- forecast(arima_model, 1)
+  predicted[i] <- pred$mean
+}
+
+arima_model
+
+
+```
+
+
+```{r}
+arima_model
+pred1
+```
+
+### Trying Some Other Models
+
+
+1. The Prophet Model
+
+
+```{r}
+head(df)
+```
+
+Lets try looking at the Plot, and see if we need a transformation of the output variable.
+
+```{r}
+#### Sales Plot for Total ##
+ggplot(df, aes(x = Date, y = Total )) +
+  geom_line(col = "green") + ylim(0, 10000000) +
+  scale_x_date(date_labels = "%y %b", date_breaks = "1 month") +
+  theme_bw() 
+```
+
+Don't think we need to any sort of Transformations
+
+```{r}
+
+my_data <- as_tibble(df) ## Create a Tibble
+my_data<-my_data %>% select(Date, Total) ## Select the two required columns
+colnames(my_data) <- c("ds", "y") ## For Running Prophet Function, it should be in ds and y columns respectively
+
+
+```
+
+```{r}
+m<- prophet(my_data, daily.seasonality = TRUE, seasonality.mode = 'additive') ## Running the PRophet Model
+future <- make_future_dataframe(m, periods = 60)
+forecast <- predict(m, future)
+```
+
+```{r}
+plot(m, forecast)
+prophet_plot_components(m, forecast)
+```
+
+
+```{r}
+tail(forecast[c('ds', 'yhat', 'yhat_lower', 'yhat_upper')])
+```
+The Cross-Validation Doesnt yield great result for some reason.
+
+
+```{r}
+# R
+df.cv <- cross_validation(m, initial = 865, period =365, horizon = 60, units = 'days')
+head(df.cv)
+```
+
+```{r}
+a<-my_data[867:926,] ## Subsetting the actually observed sales values
+b<- forecast[867:926,] ## Subsetting the forcasted sales values
+c<- a$y
+d<- b$yhat
+Prophet_model<- accuracy(d,c)
+Prophet_model
+```
+
+MAPE = 8.60% Not bad at all, infact very close to the Auto-Arima Model, which was 7.07 %
+
+
+```{r}
+fit <- stlf(training1, method = "ets") ## Exponential Smoothing here, along with STL Decomposition
+fc <- forecast(fit, h=60)
+plot(fc)
+fc
+```
+
